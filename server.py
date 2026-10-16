@@ -18,7 +18,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Use environment variable on Render/Railway, fallback to local key for testing
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY)
 
@@ -135,13 +134,16 @@ Output strictly valid JSON with these keys:
 }
 """
 
+@app.get("/")
+def health_check():
+    return {"status": "ok", "service": "KR Guidance AI Engine"}
+
 @app.post("/chat")
 def chat_endpoint(payload: UserQuery):
     try:
-        # Build conversation context so the bot remembers earlier turns
         llm_messages = [{"role": "system", "content": EXTRACTION_SYSTEM_PROMPT}]
         if payload.history:
-            for msg in payload.history[-6:]:  # Keep last 6 turns for clean context
+            for msg in payload.history[-6:]:
                 llm_messages.append({"role": msg.role, "content": msg.content})
         llm_messages.append({"role": "user", "content": payload.message})
 
@@ -163,7 +165,6 @@ def chat_endpoint(payload: UserQuery):
         category = extracted.get("category")
         rank_raw = extracted.get("rank")
 
-        # Check what is still missing
         missing_prompts = []
         if not rank_raw:
             missing_prompts.append("- EAPCET Rank (e.g., 18000)")
@@ -208,4 +209,40 @@ def chat_endpoint(payload: UserQuery):
 
         phases = db_result["phases"]
         p1 = phases.get("Phase 1", {})
-        p2 =
+        p2 = phases.get("Phase 2", {})
+        p_final = phases.get("Final Phase", {})
+
+        backup_text = ""
+        if db_result["is_safe"]:
+            status_str = f"Safe / High Probability (Secured in {db_result['secured_in']})"
+        else:
+            final_margin = abs(p_final.get("margin", 9999))
+            if final_margin <= 1000:
+                status_str = f"Borderline / Competitive (Missed Final Phase by {final_margin} ranks)"
+            else:
+                status_str = f"Reach / Tough (Exceeds Final Phase cutoff by {final_margin} ranks)"
+                backup_text = "\n\nBackup Recommendations:\n- Same Tier alternate branch: ECE or Allied branches at GRIET, CVR, Vardhaman, or MGIT.\n- Tier-2.5 Tech branches: CSE/IT at BVRIT Narsapur, MVSR, or KMEC."
+
+        output = f"""Candidate Rank: {db_result['candidate_rank']}
+Target: {db_result['college']} - {db_result['branch']} ({db_result['category']})
+Official Closing Ranks ({year}):
+- Phase 1: {p1.get('closing_rank', 'N/A')}
+- Phase 2: {p2.get('closing_rank', 'N/A')}
+- Final Phase: {p_final.get('closing_rank', 'N/A')}
+Status: {status_str}{backup_text}
+
+For personalized choice filling or in-person sessions in Siddipet with KR Sir, visit krguidance.in."""
+
+        return {
+            "type": "result",
+            "reply": output,
+            "data": db_result
+        }
+
+    except Exception as e:
+        traceback.print_exc()
+        return {
+            "type": "error",
+            "reply": "Server is busy processing requests. Please try again in a moment.",
+            "error_detail": str(e)
+        }
