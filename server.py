@@ -212,7 +212,6 @@ def chat_endpoint(payload: UserQuery):
         p2 = phases.get("Phase 2", {})
         p_final = phases.get("Final Phase", {})
 
-        backup_text = ""
         if db_result["is_safe"]:
             status_str = f"Safe / High Probability (Secured in {db_result['secured_in']})"
         else:
@@ -221,7 +220,6 @@ def chat_endpoint(payload: UserQuery):
                 status_str = f"Borderline / Competitive (Missed Final Phase by {final_margin} ranks)"
             else:
                 status_str = f"Reach / Tough (Exceeds Final Phase cutoff by {final_margin} ranks)"
-                backup_text = "\n\nBackup Recommendations:\n- Same Tier alternate branch: ECE or Allied branches at GRIET, CVR, Vardhaman, or MGIT.\n- Tier-2.5 Tech branches: CSE/IT at BVRIT Narsapur, MVSR, or KMEC."
 
         output = f"""Candidate Rank: {db_result['candidate_rank']}
 Target: {db_result['college']} - {db_result['branch']} ({db_result['category']})
@@ -229,7 +227,7 @@ Official Closing Ranks ({year}):
 - Phase 1: {p1.get('closing_rank', 'N/A')}
 - Phase 2: {p2.get('closing_rank', 'N/A')}
 - Final Phase: {p_final.get('closing_rank', 'N/A')}
-Status: {status_str}{backup_text}
+Status: {status_str}
 
 For personalized choice filling or in person sessions in Siddipet with KR Sir, visit krguidance.in."""
 
