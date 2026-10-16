@@ -231,7 +231,7 @@ Official Closing Ranks ({year}):
 - Final Phase: {p_final.get('closing_rank', 'N/A')}
 Status: {status_str}{backup_text}
 
-For personalized choice filling or in-person sessions in Siddipet with KR Sir, visit krguidance.in."""
+For personalized choice filling or in person sessions in Siddipet with KR Sir, visit krguidance.in."""
 
         return {
             "type": "result",
