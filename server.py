@@ -98,6 +98,13 @@ EXTRACTION_SYSTEM_PROMPT = """
 You are an expert admission parameter extractor for TG EAPCET.
 Read the entire conversation history and the latest user message to combine all candidate details (supports English, Telugu script, and Tanglish).
 
+Determine the user's intent carefully:
+1. "priority_or_comparison": Choose this intent if the user asks ANY of the following:
+   - Which college or branch is better (e.g., "GRIET CSE or CBIT CSE which is better?", "CBIT ECE vs VNR CSE")
+   - Web options priority order or college preference list (e.g., "Give me priority order", "How to arrange web options?")
+   - Best colleges for their rank / general college recommendations (e.g., "Which colleges will I get for 15000 rank?", "Suggest top colleges for CSE")
+2. "cutoff_check": Choose this intent ONLY when the user is checking cutoff / admission chances for a single specific target college and branch.
+
 College Code Mapping:
 - GRIET / Gokaraju -> GRRR
 - VNR / VJIET -> VNRV
@@ -131,8 +138,7 @@ Language Detection:
 
 Output strictly valid JSON with these keys:
 {
-  "is_complete": true,
-  "missing_fields": [],
+  "intent": "cutoff_check",
   "college": "CBIT",
   "branch": "ECE",
   "category": "ST",
@@ -150,7 +156,6 @@ def health_check():
 @app.post("/chat")
 def chat_endpoint(payload: UserQuery):
     try:
-        # Check if user typed in Telugu script in current message or recent history
         is_telugu = has_telugu_script(payload.message)
         if not is_telugu and payload.history:
             is_telugu = any(has_telugu_script(m.content) for m in payload.history[-2:] if m.role == "user")
@@ -177,12 +182,46 @@ def chat_endpoint(payload: UserQuery):
         if extracted.get("language") == "te":
             is_telugu = True
 
+        intent = extracted.get("intent", "cutoff_check")
+
+        # =====================================================================
+        # MENTORSHIP UPSELL FOR PRIORITY ORDER / "WHICH IS BETTER?" / LISTS
+        # =====================================================================
+        if intent == "priority_or_comparison":
+            if is_telugu:
+                mentorship_reply = """ఏ కాలేజ్ లేదా బ్రాంచ్ బెస్ట్ అనేది మరియు వెబ్ ఆప్షన్స్ ప్రయారిటీ ఆర్డర్ (Priority Order) ఎంచుకోవడం కౌన్సెలింగ్‌లో అత్యంత ముఖ్యమైన ఘట్టం.
+
+మీకు మా **KR GUIDANCE Personal Mentorship** ఎంతో ఉపయోగపడుతుంది:
+- కౌన్సెలింగ్ ప్రక్రియ పూర్తయ్యే వరకు పూర్తి సహాయం (Full Support throughout Counselling)
+- మీ ర్యాంక్, మీకు ఇష్టమైన బ్రాంచ్ మరియు కాలేజీల ప్రకారం ప్రత్యేకమైన Priority Order లిస్ట్
+- **రాములు సార్ (Ramulu Sir)** గారితో నేరుగా మీ సందేహాల నివృత్తి (Direct Doubt Solving)
+
+ఇవన్నీ కేవలం **₹1,899/-** మాత్రమే.
+📲 చేరడానికి ఇప్పుడే **9908134366** నంబర్‌కు **WhatsApp** చేయండి!"""
+            else:
+                mentorship_reply = """Our **KR GUIDANCE Personal Mentorship** will help you the most with choosing the best college and priority order!
+
+You will get:
+- Full support throughout the entire counselling process
+- Personalized Web Options Priority Order according to your rank, preferred branches & colleges
+- Direct 1-on-1 doubt solving by **Ramulu Sir**
+
+All of these at just **₹1,899/-**!
+📲 **You can WhatsApp 9908134366** to enroll right now."""
+
+            return {
+                "type": "mentorship_upsell",
+                "reply": mentorship_reply
+            }
+
+        # =====================================================================
+        # STANDARD SINGLE COLLEGE CUTOFF CHECK
+        # =====================================================================
         college = extracted.get("college")
         branch = extracted.get("branch")
         category = extracted.get("category")
         rank_raw = extracted.get("rank")
 
-        # Handle missing fields in Telugu or English
         if is_telugu:
             missing_prompts = []
             if not rank_raw:
@@ -252,7 +291,6 @@ def chat_endpoint(payload: UserQuery):
         p2 = phases.get("Phase 2", {})
         p_final = phases.get("Final Phase", {})
 
-        # Format output in natural Telugu or English
         if is_telugu:
             if db_result["is_safe"]:
                 status_str = f"సేఫ్ / సీటు వచ్చే అవకాశం ఎక్కువగా ఉంది ({db_result['secured_in']} లోనే సీటు వచ్చింది)"
@@ -271,7 +309,7 @@ def chat_endpoint(payload: UserQuery):
 - Final Phase: {p_final.get('closing_rank', 'N/A')}
 సీటు వచ్చే అవకాశం: {status_str}
 
-వెబ్ ఆప్షన్స్ (Choice Filling) లేదా సిద్దిపేటలో KR Sir తో నేరుగా కౌన్సెలింగ్ కోసం krguidance.in ని సంప్రదించండి."""
+వెబ్ ఆప్షన్స్ ప్రయారిటీ ఆర్డర్ & Ramulu Sir వ్యక్తిగత కౌన్సెలింగ్ మెంటార్‌షిప్ (₹1899) కోసం 9908134366 కు WhatsApp చేయండి."""
 
         else:
             if db_result["is_safe"]:
@@ -291,7 +329,7 @@ Official Closing Ranks ({year}):
 - Final Phase: {p_final.get('closing_rank', 'N/A')}
 Status: {status_str}
 
-For personalized choice filling or in person sessions in Siddipet with KR Sir, visit krguidance.in."""
+For personalized Priority Order & 1-on-1 Mentorship with Ramulu Sir (₹1899), WhatsApp 9908134366."""
 
         return {
             "type": "result",
