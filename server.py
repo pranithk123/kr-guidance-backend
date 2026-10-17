@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import os
+import re
 import traceback
 from typing import List, Optional
 from fastapi import FastAPI
@@ -35,6 +36,44 @@ class UserQuery(BaseModel):
 def has_telugu_script(text: str) -> bool:
     """Checks if the user message contains Telugu Unicode characters."""
     return any("\u0C00" <= char <= "\u0C7F" for char in text)
+
+
+def search_counselling_kb(query_text: str, search_keywords: List[str], limit: int = 5):
+    """Searches the SQLite FTS5 counselling_kb table for relevant past WhatsApp Q&As and rules."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    results = []
+    try:
+        # Clean words for FTS5 OR query
+        words = re.findall(r"[a-zA-Z0-9]+", " ".join(search_keywords) + " " + query_text)
+        stop_words = {"sir", "please", "can", "we", "in", "to", "for", "the", "is", "what", "how", "and", "or", "my", "me", "lo", "ki", "ani", "naa", "maa"}
+        valid_words = [w for w in words if len(w) > 2 and w.lower() not in stop_words][:8]
+
+        if valid_words:
+            fts_query = " OR ".join(valid_words)
+            cursor.execute("""
+                SELECT question, answer, source
+                FROM counselling_kb_fts
+                JOIN counselling_kb ON counselling_kb_fts.rowid = counselling_kb.id
+                WHERE counselling_kb_fts MATCH ?
+                ORDER BY CASE WHEN source = 'core_rules' THEN 0 ELSE 1 END, rank
+                LIMIT ?
+            """, (fts_query, limit))
+            results = cursor.fetchall()
+    except Exception:
+        pass
+
+    # Fallback always includes core rules if FTS returned few matches
+    if len(results) < 2:
+        try:
+            cursor.execute("SELECT question, answer, source FROM counselling_kb WHERE source = 'core_rules' LIMIT 6")
+            results.extend(cursor.fetchall())
+        except Exception:
+            pass
+
+    conn.close()
+    return results
 
 
 def query_database(college: str, branch: str, category: str, gender: str, rank: int, year: int = 2025):
@@ -98,12 +137,12 @@ EXTRACTION_SYSTEM_PROMPT = """
 You are an expert admission parameter extractor for TG EAPCET.
 Read the entire conversation history and the latest user message to combine all candidate details (supports English, Telugu script, and Tanglish).
 
-Determine the user's intent carefully:
-1. "priority_or_comparison": Choose this intent if the user asks ANY of the following:
-   - Which college or branch is better (e.g., "GRIET CSE or CBIT CSE which is better?", "CBIT ECE vs VNR CSE")
-   - Web options priority order or college preference list (e.g., "Give me priority order", "How to arrange web options?")
-   - Best colleges for their rank / general college recommendations (e.g., "Which colleges will I get for 15000 rank?", "Suggest top colleges for CSE")
-2. "cutoff_check": Choose this intent ONLY when the user is checking cutoff / admission chances for a single specific target college and branch.
+Classify the user's intent into ONE of these 3 categories:
+1. "priority_or_comparison": User asks which college/branch is better (e.g., "GRIET CSE or CBIT CSE which is better?"), asks for web options priority order, or asks for a list of best colleges for their rank.
+2. "counselling_doubt": User asks a question about the counselling process, rules, certificates, fee payment, fee reimbursement, self-reporting, physical reporting, Phase 1 vs Phase 2 seat retention, seat cancellation, fee refund, spot admission, or payment gateway failure.
+3. "cutoff_check": User wants to check admission chances or cutoff for a single specific college and branch (or is providing their rank/category/college/branch details).
+
+If intent is "counselling_doubt", also provide 3-5 English "search_keywords" translating the user's doubt (even if they asked in Telugu/Tanglish) so we can search the FAQ database (e.g., ["self reporting", "payment", "failed", "transaction"] or ["first phase", "fee", "second phase"]).
 
 College Code Mapping:
 - GRIET / Gokaraju -> GRRR
@@ -139,6 +178,7 @@ Language Detection:
 Output strictly valid JSON with these keys:
 {
   "intent": "cutoff_check",
+  "search_keywords": [],
   "college": "CBIT",
   "branch": "ECE",
   "category": "ST",
@@ -185,7 +225,7 @@ def chat_endpoint(payload: UserQuery):
         intent = extracted.get("intent", "cutoff_check")
 
         # =====================================================================
-        # MENTORSHIP UPSELL FOR PRIORITY ORDER / "WHICH IS BETTER?" / LISTS
+        # 1. MENTORSHIP UPSELL FOR PRIORITY ORDER / "WHICH IS BETTER?"
         # =====================================================================
         if intent == "priority_or_comparison":
             if is_telugu:
@@ -215,7 +255,46 @@ All of these at just **₹1,899/-**!
             }
 
         # =====================================================================
-        # STANDARD SINGLE COLLEGE CUTOFF CHECK
+        # 2. COUNSELLING PROCESS / RULES DOUBT (FROM WHATSAPP KB & RULES)
+        # =====================================================================
+        if intent == "counselling_doubt":
+            keywords = extracted.get("search_keywords") or []
+            kb_matches = search_counselling_kb(payload.message, keywords, limit=5)
+
+            kb_context = "\n\n".join([f"Q: {q}\nA: {a}" for q, a, _ in kb_matches])
+
+            lang_instruction = (
+                "Respond in natural, easy-to-understand Telugu script (mixing common English terms like Phase 1, Phase 2, Self-Reporting, Tuition Fee where natural)."
+                if is_telugu else
+                "Respond in clear, polite, concise English."
+            )
+
+            doubt_prompt = f"""You are KR Guidance AI Assistant created by Ramulu Sir (TG EAPCET Counselling Expert).
+Answer the parent/student's TG EAPCET counselling doubt accurately using the verified knowledge base below.
+- Keep the answer direct, reassuring, and practical (3 to 5 sentences max).
+- Do NOT invent fake dates or numbers.
+- {lang_instruction}
+- At the very end, add a short 1-line note: For complete handholding & priority order mentorship (₹1899) with Ramulu Sir, WhatsApp 9908134366.
+
+Verified KR Guidance Knowledge Base:
+{kb_context}
+"""
+            ans_resp = client.chat.completions.create(
+                model="qwen/qwen3.8-27b",
+                messages=[
+                    {"role": "system", "content": doubt_prompt},
+                    {"role": "user", "content": payload.message}
+                ],
+                temperature=0.2
+            )
+            answer_text = ans_resp.choices[0].message.content.strip()
+            return {
+                "type": "counselling_doubt",
+                "reply": answer_text
+            }
+
+        # =====================================================================
+        # 3. STANDARD SINGLE COLLEGE CUTOFF CHECK
         # =====================================================================
         college = extracted.get("college")
         branch = extracted.get("branch")
