@@ -144,17 +144,17 @@ Classify the user's intent into ONE of these 3 categories:
 
 If intent is "counselling_doubt", also provide 3-5 English "search_keywords" translating the user's doubt (even if they asked in Telugu/Tanglish) so we can search the FAQ database (e.g., ["self reporting", "payment", "failed", "transaction"] or ["first phase", "fee", "second phase"]).
 
-College Code Mapping:
-- GRIET / Gokaraju -> GRRR
-- VNR / VJIET / VNRV -> VJEC
-- CBIT -> CBIT
-- Vardhaman -> VMEG
-- Vasavi -> VCE
-- CVR -> CVRH
-- BVRIT / BVRIT Narsapur -> BVRI
-- MGIT -> MGIT
-- MVSR -> MVSR
-- KMIT -> KMIT
+College Code Mapping (Handle all typos, misspellings, and informal names):
+- GRIET / Gokaraju / Gokraju / Grrr / Gokaraju Rangaraju -> GRRR
+- VNR / VJIET / VNRV / Vignan Jyothi / Vignana Jyothi -> VJEC
+- CBIT / Chaitanya Bharathi / Chaitanya -> CBIT
+- Vardhaman / Vardhamana / Vmeg -> VMEG
+- Vasavi / Vasavi College -> VCE
+- CVR / CVR College -> CVRH
+- BVRIT / Bvrit Narsapur / Bvrit Nsp -> BVRI
+- MGIT / Mahatma Gandhi -> MGIT
+- MVSR / Mvsrec -> MVSR
+- KMIT / Keshav Memorial -> KMIT
 
 Branch Mapping:
 - CSE / Computer Science / కంప్యూటర్ సైన్స్ -> CSE
