@@ -146,7 +146,7 @@ If intent is "counselling_doubt", also provide 3-5 English "search_keywords" tra
 
 College Code Mapping:
 - GRIET / Gokaraju -> GRRR
-- VNR / VJIET -> VNRV
+- VNR / VJIET / VNRV -> VJEC
 - CBIT -> CBIT
 - Vardhaman -> VMEG
 - Vasavi -> VCE
